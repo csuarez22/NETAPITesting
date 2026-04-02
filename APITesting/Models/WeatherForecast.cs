@@ -1,4 +1,4 @@
-namespace APITesting
+namespace APITesting.Models
 {
     public class WeatherForecast
     {
