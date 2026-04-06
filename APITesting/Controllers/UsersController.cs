@@ -24,7 +24,25 @@ namespace APITesting.Controllers
 
         // POST: api/Users
         [HttpPost]
-        public async Task<ActionResult<User>> CreateUser(User user)
+        public async Task<ActionResult<User>> CreateUser(UserDTO user)
+        {
+            try
+            {
+                await _userService.createUser(user);
+                return Ok("User created successfully.");
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return StatusCode(500, ex.Message);
+            }
+        }
+
+        [HttpPost]
+        public async Task<ActionResult<User>> Login(UserDTO user)
         {
             try
             {

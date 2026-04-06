@@ -1,5 +1,6 @@
 ﻿using APITesting.Models;
 using APITesting.Models.DTOs;
+using Humanizer;
 using Microsoft.EntityFrameworkCore;
 
 namespace APITesting.Services
@@ -13,7 +14,7 @@ namespace APITesting.Services
             _db = db;
         }
 
-        public async Task createUser(User user)
+        public async Task createUser(UserDTO user)
         {
             try
             {
@@ -22,21 +23,54 @@ namespace APITesting.Services
                 if (string.IsNullOrWhiteSpace(user.Username))
                     throw new ArgumentException("Username is required.");
 
-                if (string.IsNullOrWhiteSpace(user.Email))
-                    throw new ArgumentException("Email is required.");
-
                 if (await _db.Users.AnyAsync(u => u.Username == user.Username))
                     throw new ArgumentException("User already exists.");
 
+                if (string.IsNullOrWhiteSpace(user.Password))
+                    throw new ArgumentException("Password is required.");
+
+                if (string.IsNullOrWhiteSpace(user.Email))
+                    throw new ArgumentException("Email is required.");
+
                 #endregion
 
-                _db.Users.Add(user);
+                var passwordHash = BCrypt.Net.BCrypt.HashPassword(user.Password);
+
+                User _dbUser = new User { 
+                    Username = user.Username, 
+                    Email = user.Email, 
+                    EncodedPassword = passwordHash, 
+                    FirstName = user.FirstName ?? string.Empty, 
+                    LastName = user.LastName ?? string.Empty, 
+                    DateOfBirth = user.DateOfBirth ?? DateOnly.MinValue, //date of birth isn't required, so we set it to a default value if it's not provided
+                    Address = user.Address
+                };
+
+                _db.Users.Add(_dbUser);
                 await _db.SaveChangesAsync();
             }
             catch (DbUpdateException ex)
             {
                 throw new InvalidOperationException("Failed to create user: " + ex.Message);
             }
+        }
+
+        public async Task login(UserDTO user)
+        {
+            #region Validations
+
+            if (string.IsNullOrWhiteSpace(user.Username))
+                throw new ArgumentException("Username is required.");
+
+            if (await _db.Users.AnyAsync(u => u.Username == user.Username))
+                throw new ArgumentException("User already exists.");
+
+            if (string.IsNullOrWhiteSpace(user.Password))
+                throw new ArgumentException("Password is required.");
+
+            #endregion
+
+
         }
 
         public Task<List<User>> getUsers()
