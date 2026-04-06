@@ -1,17 +1,46 @@
 ﻿using APITesting.Models;
 using APITesting.Models.DTOs;
-using Humanizer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 namespace APITesting.Services
 {
     public class UserService
     {
         private readonly AppDbContext _db;
+        private readonly IConfiguration _configuration;
 
-        public UserService(AppDbContext db)
+        public UserService(AppDbContext db, IConfiguration configuration)
         {
             _db = db;
+            _configuration = configuration;
+        }
+
+        public string generateToken(string username)
+        {
+            var claims = new[]
+            {
+                new Claim(ClaimTypes.Name, username),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            var key = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+
+            var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var token = new JwtSecurityToken(
+                issuer: _configuration["Jwt:Issuer"],
+                audience: _configuration["Jwt:Audience"],
+                claims: claims,
+                expires: DateTime.UtcNow.AddHours(8), // token expires in 8 hours
+                signingCredentials: credentials
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
         public async Task createUser(UserDTO user)
@@ -55,22 +84,25 @@ namespace APITesting.Services
             }
         }
 
-        public async Task login(UserDTO user)
+        public async Task<bool> login(LoginDTO user)
         {
             #region Validations
 
             if (string.IsNullOrWhiteSpace(user.Username))
                 throw new ArgumentException("Username is required.");
 
-            if (await _db.Users.AnyAsync(u => u.Username == user.Username))
-                throw new ArgumentException("User already exists.");
-
             if (string.IsNullOrWhiteSpace(user.Password))
                 throw new ArgumentException("Password is required.");
 
             #endregion
 
+            User? login = await _db.Users.FindAsync(user.Username);
 
+            if (login == null)
+                throw new ArgumentException("User not found.");
+
+            // verify the provided password against the stored hash
+            return BCrypt.Net.BCrypt.Verify(user.Password, login.EncodedPassword);
         }
 
         public Task<List<User>> getUsers()
@@ -78,9 +110,25 @@ namespace APITesting.Services
             return _db.Users.ToListAsync();
         }
 
-        public ValueTask<User?> getUser(string username)
+        public async Task<UserDTO> getUser(string username)
         {
-            return _db.Users.FindAsync(username);
+            var userFromDB = await _db.Users.FindAsync(username);
+
+            if (userFromDB == null)
+                throw new ArgumentException("User not found.");
+
+            //we don't want to return the DB user directly because it contains the password hash
+            UserDTO user = new UserDTO
+            {
+                Username = userFromDB?.Username,
+                Email = userFromDB?.Email,
+                FirstName = userFromDB?.FirstName,
+                LastName = userFromDB?.LastName,
+                DateOfBirth = userFromDB?.DateOfBirth,
+                Address = userFromDB?.Address
+            };
+
+            return user;
         }
 
         public async Task updateUser(string username, UserDTO data)

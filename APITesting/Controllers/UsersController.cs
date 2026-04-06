@@ -1,18 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using APITesting.Models;
-using APITesting.Services;
+﻿using APITesting.Models;
 using APITesting.Models.DTOs;
+using APITesting.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace APITesting.Controllers
 {
-    [Route("api/[controller]")]
+    [Authorize]
     [ApiController]
+    [Route("api/[controller]")]
     public class UsersController : ControllerBase
     {
         private readonly UserService _userService;
@@ -22,8 +19,10 @@ namespace APITesting.Controllers
             _userService = userService;
         }
 
-        // POST: api/Users
-        [HttpPost]
+        #region Anonymous endpoints
+        // POST: api/users/create
+        [AllowAnonymous]
+        [HttpPost("create")]
         public async Task<ActionResult<User>> CreateUser(UserDTO user)
         {
             try
@@ -41,49 +40,70 @@ namespace APITesting.Controllers
             }
         }
 
-        [HttpPost]
-        public async Task<ActionResult<User>> Login(UserDTO user)
+        // POST: api/users/login
+        [AllowAnonymous]
+        [HttpPost("login")]
+        public async Task<ActionResult<User>> Login(LoginDTO user)
         {
             try
             {
-                await _userService.createUser(user);
-                return Ok("User created successfully.");
+                bool loginSuccess = await _userService.login(user);
+                if (loginSuccess)
+                {
+                    var token = _userService.generateToken(user.Username);
+                    return Ok(token);
+                } else 
+                    return Unauthorized("Invalid password.");
             }
             catch (ArgumentException ex)
             {
                 return BadRequest(ex.Message);
             }
-            catch (InvalidOperationException ex)
-            {
-                return StatusCode(500, ex.Message);
-            }
         }
 
-        // GET: api/Users
-        [HttpGet]
-        public async Task<ActionResult<IEnumerable<User>>> GetUsers()
+        #endregion
+
+        #region Secure endpoints
+
+        //obtain username from JWT token
+        private string? GetUsernameFromToken()
         {
-            return Ok(await _userService.getUsers());
+            return User.FindFirst(ClaimTypes.Name)?.Value;
         }
 
-        // GET: api/Users/username
-        [HttpGet("{username}")]
-        public async Task<ActionResult<User>> GetUser(string username)
-        {
-            var user = await _userService.getUser(username);
+        //we don't really need this one anymore
+        // GET: api/users
+        //[HttpGet]
+        //public async Task<ActionResult<IEnumerable<User>>> GetUsers()
+        //{
+        //    return Ok(await _userService.getUsers());
+        //}
 
-            if (user == null)
-                return NotFound("User doesn't exist.");
-
-            return Ok(user);
-        }
-
-        // PUT: api/Users/5
-        [HttpPatch("{username}")]
-        public async Task<IActionResult> PutUser(string username, [FromBody] UserDTO user)
+        // GET: api/users/information
+        [HttpGet("information")]
+        public async Task<ActionResult<User>> GetUser()
         {
             try
             {
+                //obtain username from JWT token and use it to get user information
+                string username = GetUsernameFromToken() ?? throw new InvalidOperationException("User not authenticated.");
+                var user = await _userService.getUser(username);
+                return Ok(user);
+            }
+            catch (ArgumentException ex)
+            {
+                return NotFound(ex.Message);
+            }
+
+        }
+
+        // PATCH: api/users/update
+        [HttpPatch("update")]
+        public async Task<IActionResult> PutUser(UserDTO user)
+        {
+            try
+            {
+                string username = GetUsernameFromToken() ?? throw new InvalidOperationException("User not authenticated.");
                 await _userService.updateUser(username, user);
                 return Ok("User updated successfully.");
             }
@@ -98,12 +118,13 @@ namespace APITesting.Controllers
             }
         }
 
-        // DELETE: api/Users/5
-        [HttpDelete("{username}")]
-        public async Task<IActionResult> DeleteUser(string username)
+        // DELETE: api/users/delete
+        [HttpDelete("delete")]
+        public async Task<IActionResult> DeleteUser()
         {
             try
             {
+                string username = GetUsernameFromToken() ?? throw new InvalidOperationException("User not authenticated.");
                 await _userService.deleteUser(username);
                 return Ok("User deleted successfully.");
             }
@@ -116,5 +137,7 @@ namespace APITesting.Controllers
                 return StatusCode(500, ex.Message);
             }
         }
+
+        #endregion
     }
 }
