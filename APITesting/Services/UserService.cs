@@ -1,9 +1,11 @@
 ﻿using APITesting.Models;
 using APITesting.Models.DTOs;
+using Humanizer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace APITesting.Services
@@ -19,7 +21,9 @@ namespace APITesting.Services
             _configuration = configuration;
         }
 
-        public string generateToken(string username)
+        #region Token Generation
+
+        public string generateAccessToken(string username)
         {
             var claims = new[]
             {
@@ -32,16 +36,70 @@ namespace APITesting.Services
 
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
+            //access token
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddHours(8), // token expires in 8 hours
+                expires: DateTime.UtcNow.AddMinutes(int.Parse(_configuration["Jwt:AccessTokenExpiry"])), //token expires in 15mins
                 signingCredentials: credentials
             );
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
+
+        public async Task<string> generateRefreshToken(string username)
+        {
+            //invalidate any existing refreshTokens for this user
+            var existingTokens = await _db.RefreshTokens
+                .Where(rt => rt.Username == username)
+                .ToListAsync();
+
+            //technically we only have one refreshToken at the time
+            _db.RemoveRange(existingTokens);
+
+            var refreshToken = new RefreshToken
+            {
+                Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
+                Username = username,
+                ExpiryDate = DateTime.UtcNow.AddDays(int.Parse(_configuration["Jwt:RefreshTokenExpiry"])), //refresh token expires in 7 days
+            };
+
+            _db.RefreshTokens.Add(refreshToken);
+            await _db.SaveChangesAsync();
+
+            return refreshToken.Token;
+        }
+
+        public async Task<string> refreshAccessToken(string refreshToken)
+        {
+            var existingToken = await _db.RefreshTokens.FirstOrDefaultAsync(rt => rt.Token == refreshToken);
+
+            if (existingToken == null)
+                throw new ArgumentException("Invalid refresh token.");
+
+            if (existingToken.ExpiryDate < DateTime.UtcNow)
+            {
+                _db.RefreshTokens.Remove(existingToken);
+                await _db.SaveChangesAsync();
+                throw new ArgumentException("Refresh token has expired.");
+            }
+
+            return generateAccessToken(existingToken.Username);
+        }
+
+        //invalidate all tokens when user logs out 
+        public async Task invalidateRefreshToken(string username)
+        {
+            var existingTokens = await _db.RefreshTokens
+                .Where(rt => rt.Username == username)
+                .ToListAsync();
+
+            _db.RemoveRange(existingTokens);
+            await _db.SaveChangesAsync();
+        }
+
+        #endregion
 
         public async Task createUser(UserDTO user)
         {

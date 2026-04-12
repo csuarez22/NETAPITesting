@@ -8,6 +8,8 @@ namespace APITesting.Models
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
         public DbSet<User> Users => Set<User>();
+        public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
 
         //we're not using this for now 
         #region Required

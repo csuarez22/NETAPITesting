@@ -13,6 +13,7 @@ namespace APITesting.Controllers
     public class UsersController : ControllerBase
     {
         private readonly UserService _userService;
+        private string? _tokenUsername => User.FindFirst(ClaimTypes.Name)?.Value;
 
         public UsersController(UserService userService)
         {
@@ -23,7 +24,7 @@ namespace APITesting.Controllers
         // POST: api/users/create
         [AllowAnonymous]
         [HttpPost("create")]
-        public async Task<ActionResult<User>> CreateUser(UserDTO user)
+        public async Task<ActionResult> CreateUser(UserDTO user)
         {
             try
             {
@@ -43,17 +44,38 @@ namespace APITesting.Controllers
         // POST: api/users/login
         [AllowAnonymous]
         [HttpPost("login")]
-        public async Task<ActionResult<User>> Login(LoginDTO user)
+        public async Task<ActionResult> Login(LoginDTO user)
         {
             try
             {
                 bool loginSuccess = await _userService.login(user);
                 if (loginSuccess)
                 {
-                    var token = _userService.generateToken(user.Username);
-                    return Ok(token);
+                    var accessToken = _userService.generateAccessToken(user.Username);
+                    var refreshToken = await _userService.generateRefreshToken(user.Username);
+                    return Ok(new 
+                    { 
+                        accessToken, 
+                        refreshToken 
+                    });
                 } else 
                     return Unauthorized("Invalid password.");
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        // POST: api/users/refresh
+        [AllowAnonymous]
+        [HttpPost("refresh")]
+        public async Task<ActionResult> Refresh(RefreshTokenDTO dto)
+        {
+            try
+            {
+                var accessToken = _userService.refreshAccessToken(dto.Token);
+                return Ok(new { accessToken });
             }
             catch (ArgumentException ex)
             {
@@ -65,10 +87,20 @@ namespace APITesting.Controllers
 
         #region Secure endpoints
 
-        //obtain username from JWT token
-        private string? GetUsernameFromToken()
+        // POST: api/users/logout
+        [HttpPost("logout")]
+        public async Task<ActionResult> Logout()
         {
-            return User.FindFirst(ClaimTypes.Name)?.Value;
+            try
+            {
+                string username = _tokenUsername ?? throw new InvalidOperationException("User not authenticated.");
+                await _userService.invalidateRefreshToken(username);
+                return Ok("Logged out successfully.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                return StatusCode(500, ex.Message);
+            }
         }
 
         //we don't really need this one anymore
@@ -86,7 +118,7 @@ namespace APITesting.Controllers
             try
             {
                 //obtain username from JWT token and use it to get user information
-                string username = GetUsernameFromToken() ?? throw new InvalidOperationException("User not authenticated.");
+                string username = _tokenUsername ?? throw new InvalidOperationException("User not authenticated.");
                 var user = await _userService.getUser(username);
                 return Ok(user);
             }
@@ -94,16 +126,15 @@ namespace APITesting.Controllers
             {
                 return NotFound(ex.Message);
             }
-
         }
 
         // PATCH: api/users/update
         [HttpPatch("update")]
-        public async Task<IActionResult> PutUser(UserDTO user)
+        public async Task<ActionResult> PutUser(UserDTO user)
         {
             try
             {
-                string username = GetUsernameFromToken() ?? throw new InvalidOperationException("User not authenticated.");
+                string username = _tokenUsername ?? throw new InvalidOperationException("User not authenticated.");
                 await _userService.updateUser(username, user);
                 return Ok("User updated successfully.");
             }
@@ -120,12 +151,13 @@ namespace APITesting.Controllers
 
         // DELETE: api/users/delete
         [HttpDelete("delete")]
-        public async Task<IActionResult> DeleteUser()
+        public async Task<ActionResult> DeleteUser()
         {
             try
             {
-                string username = GetUsernameFromToken() ?? throw new InvalidOperationException("User not authenticated.");
+                string username = _tokenUsername ?? throw new InvalidOperationException("User not authenticated.");
                 await _userService.deleteUser(username);
+                await _userService.invalidateRefreshToken(username); //invalidate refresh token upon account deletion
                 return Ok("User deleted successfully.");
             }
             catch (ArgumentException ex)
