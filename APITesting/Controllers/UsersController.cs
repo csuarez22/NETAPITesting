@@ -21,15 +21,23 @@ namespace APITesting.Controllers
         }
 
         #region Anonymous endpoints
-        // POST: api/users/create
+        // POST: api/users/register
         [AllowAnonymous]
-        [HttpPost("create")]
-        public async Task<ActionResult> CreateUser(UserDTO user)
+        [HttpPost("register")]
+        public async Task<ActionResult> RegisterUser(UserDTO user)
         {
             try
             {
                 await _userService.createUser(user);
-                return Ok("User created successfully.");
+                //return tokens for immediate access after registration
+                var accessToken = _userService.generateAccessToken(user.Username);
+                var refreshToken = await _userService.generateRefreshToken(user.Username);
+
+                return Ok(new 
+                { 
+                    accessToken, 
+                    refreshToken 
+                });
             }
             catch (ArgumentException ex)
             {

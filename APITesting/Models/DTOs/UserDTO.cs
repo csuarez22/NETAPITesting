@@ -4,7 +4,7 @@
     {
         //we use this DTO for everything, so we'll check for null values in the service layer to determine which fields to create/update
         //these cannot be updated
-        public string? Username { get; set; }
+        public required string Username { get; set; }
         public string? Password { get; set; }
         public string? Email { get; set; }
 

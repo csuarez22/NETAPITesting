@@ -62,7 +62,7 @@ namespace APITesting.Services
             {
                 Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
                 Username = username,
-                ExpiryDate = DateTime.UtcNow.AddDays(int.Parse(_configuration["Jwt:RefreshTokenExpiry"])), //refresh token expires in 7 days
+                ExpiryDate = DateTime.UtcNow.AddDays(int.Parse(_configuration["Jwt:RefreshTokenExpiry"])), //refresh token expires in 30 days
             };
 
             _db.RefreshTokens.Add(refreshToken);
@@ -178,7 +178,7 @@ namespace APITesting.Services
             //we don't want to return the DB user directly because it contains the password hash
             UserDTO user = new UserDTO
             {
-                Username = userFromDB?.Username,
+                Username = userFromDB.Username,
                 Email = userFromDB?.Email,
                 FirstName = userFromDB?.FirstName,
                 LastName = userFromDB?.LastName,
